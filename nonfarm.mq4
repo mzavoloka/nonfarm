@@ -16,6 +16,8 @@ extern int StopLossAmountInPoints = 200;
 extern int TakeProfitAmountInPoints = 500;
 extern int PendingOrderOffsetInPoints = 200;
 
+extern int RiskPerTradeInPercents = 3;
+
 int buystopTicket = 0;
 int sellstopTicket = 0;
 
@@ -88,7 +90,7 @@ int PlaceBuystop()
     int order_ticket = OrderSend(
         Symbol(),
         OP_BUYSTOP,
-        0.1,
+        LotSize(),
         price,
         1,
         stoploss,
@@ -112,7 +114,7 @@ int PlaceSellstop()
     int order_ticket = OrderSend(
         Symbol(),
         OP_SELLSTOP,
-        0.1,
+        LotSize(),
         price,
         1,
         stoploss,
@@ -131,4 +133,30 @@ bool WereThereOrdersPlacedToday()
     return( buystopTicket > 0
             ||
             sellstopTicket > 0 );
+}
+
+double LotSize()
+{
+    double riskAmount = AccountEquity() * RiskPerTradeInPercents / 100;
+    double tickValue = MarketInfo( Symbol(), MODE_TICKVALUE );
+    if( Point == 0.01 || Point == 0.00001 ) tickValue *= 10;
+    double lotSize = riskAmount / StopLossAmountInPoints / tickValue;
+
+    lotSize = Clamp( lotSize, MarketInfo( Symbol(), MODE_MINLOT ), MarketInfo( Symbol(), MODE_MAXLOT ) );
+
+    if( MarketInfo( Symbol(), MODE_LOTSTEP ) == 0.1 )
+    {
+        lotSize = NormalizeDouble( lotSize, 1 );
+    }
+    else
+    {
+        lotSize = NormalizeDouble( lotSize, 2 );
+    }
+
+    return lotSize;
+}
+
+double Clamp( double number, double lower, double upper )
+{
+    return MathMax( lower, MathMin( number, upper ) );
 }
