@@ -12,8 +12,13 @@
 
 int orderTicket;
 
-extern int StopLossAmountInPoints = 50;
-bool WereThereOrdersPlacedToday = false;
+extern int StopLossAmountInPoints = 200;
+extern int TakeProfitAmountInPoints = 500;
+extern int PendingOrderOffsetInPoints = 200;
+
+int buystopTicket = 0;
+int sellstopTicket = 0;
+
 
 int OnInit()
 {
@@ -21,22 +26,29 @@ int OnInit()
     return( INIT_SUCCEEDED );
 }
 
-
 void OnTick()
 {
-    if ( !IsItFirstFridayOfTheMonth() )
+    if( IsItFirstFridayOfTheMonth()
+        &&
+        !WereThereOrdersPlacedToday()
+        &&
+        TimeCurrent() >= StrToTime( Year() + "." + Month() + "." + Day() + " 15:00" ) )
     {
-        WereThereOrdersPlacedToday = false;
-    }
-    if ( IsItFirstFridayOfTheMonth() && !WereThereOrdersPlacedToday )
-    {
-        orderTicket = OrderSend( Symbol(), OP_BUY, 0.1, Ask, 1, DetermineStopLoss( OP_BUY ), DetermineTakeProfit( OP_BUY ), "Buy Order", 12345, 0, Green );
-        WereThereOrdersPlacedToday = true;
-        if( orderTicket == -1 )
+        buystopTicket = PlaceBuystop();
+        sellstopTicket = PlaceSellstop();
+
+        if( buystopTicket == -1
+            ||
+            sellstopTicket == -1 )
         {
             Alert( ErrorDescription( GetLastError() ) );
         }
         return;
+    }
+    if( !IsItFirstFridayOfTheMonth() )
+    {
+        buystopTicket = 0;
+        sellstopTicket = 0;
     }
     else
     {
@@ -44,10 +56,6 @@ void OnTick()
     }
 }
 
-void OnTimer()
-{
-}
-  
 bool IsItFirstFridayOfTheMonth()
 {
     if( Day() <= 7
@@ -70,40 +78,57 @@ void OnDeinit( const int reason )
     EventKillTimer();
 }
 
-double DetermineStopLoss( int operation )
+int PlaceBuystop()
 {
-    if( operation == OP_BUY ) // operation == OP_BUYSTOP ...
-    {
-        return( Bid - StopLossAmountInPoints * Point );
-    }
-    else
-    {
-        Alert( "Error" );
-        return 0;
-    }
+    double price = Ask + PendingOrderOffsetInPoints * Point;
+    double stoploss = price - StopLossAmountInPoints * Point;
+    double takeprofit = price + TakeProfitAmountInPoints * Point;
+    double expiration = StrToTime( Year() + "." + Month() + "." + Day() + " 23:00" );
+
+    int order_ticket = OrderSend(
+        Symbol(),
+        OP_BUYSTOP,
+        0.1,
+        price,
+        1,
+        stoploss,
+        takeprofit,
+        "buystop",
+        12345,
+        expiration,
+        Green
+    );
+
+    return order_ticket;
 }
 
-double DetermineTakeProfit( int operation )
+int PlaceSellstop()
 {
-    if( operation == OP_BUY ) // operation == OP_BUYSTOP ...
-    {
-        return( Bid + StopLossAmountInPoints * Point * 2 );
-    }
-    else
-    {
-        Alert( "Error" );
-        return 0;
-    }
+    double price = Bid - PendingOrderOffsetInPoints * Point;
+    double stoploss = price + StopLossAmountInPoints * Point;
+    double takeprofit = price - TakeProfitAmountInPoints * Point;
+    double expiration = StrToTime( Year() + "." + Month() + "." + Day() + " 23:00" );
+
+    int order_ticket = OrderSend(
+        Symbol(),
+        OP_SELLSTOP,
+        0.1,
+        price,
+        1,
+        stoploss,
+        takeprofit,
+        "buystop",
+        12345,
+        expiration,
+        Red
+    );
+
+    return order_ticket;
 }
 
-//bool WereThereOrdersPlacedToday()
-//{
-//    OrderSelect( OrdersTotal() - 1, SELECT_BY_POS, MODE_TRADES )
-//    OrderOpenTime();
-//    OrderSelect( OrdersTotal() - 1, SELECT_BY_POS, MODE_HISTORY )
-//
-//    return( 
-//            ||
-//            
-//           );
-//}
+bool WereThereOrdersPlacedToday()
+{
+    return( buystopTicket > 0
+            ||
+            sellstopTicket > 0 );
+}
