@@ -24,6 +24,9 @@ extern int DebugDay = 1;
 extern int DebugHour = 13;
 
 extern bool Trailing = true;
+extern bool TrailingTillOpenPrice = true;
+
+extern bool CancelOppositeOrder = true;
 
 int buystopTicket = 0;
 int sellstopTicket = 0;
@@ -57,6 +60,29 @@ void OnTick()
         }
         else
         {
+            if( CancelOppositeOrder
+                &&
+                buystopTicket > 0
+                &&
+                sellstopTicket > 0 )
+            {
+                if( OrderSelect( buystopTicket, SELECT_BY_TICKET )
+                    &&
+                    SelectedOrderIsActive() )
+                {
+                    OrderDelete( sellstopTicket );
+                    sellstopTicket = 0;
+                }
+
+                if( OrderSelect( sellstopTicket, SELECT_BY_TICKET )
+                    &&
+                    SelectedOrderIsActive() )
+                {
+                    OrderDelete( buystopTicket );
+                    buystopTicket = 0;
+                }
+            }
+
             if( Trailing )
             {
                 Trail();
@@ -276,7 +302,9 @@ void Trail()
 
 void TrailSelectedOrder()
 {
-    if( SelectedOrderIsActive() )
+    if( SelectedOrderIsActive()
+        &&
+        !DontTrailFurther() )
     {
         double trailingOffsetPosition;
         double oldStoploss = OrderStopLoss();
@@ -306,6 +334,26 @@ void TrailSelectedOrder()
     }
 
     return;
+}
+
+bool DontTrailFurther()
+{
+    if( TrailingTillOpenPrice
+        &&
+        ( OrderType() == OP_BUY
+          &&
+          OrderStopLoss() >= OrderOpenPrice()
+          ||
+          OrderType() == OP_SELL
+          &&
+          OrderStopLoss() <= OrderOpenPrice() ) )
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 bool SelectedOrderIsActive()
