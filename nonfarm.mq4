@@ -13,14 +13,17 @@
 int orderTicket;
 
 extern int StopLossAmountInPoints = 200;
-extern int TakeProfitAmountInPoints = 500;
+extern int TrailingAmountInPoints = 200;
+extern int TakeProfitAmountInPoints = 1000;
 extern int PendingOrderOffsetInPoints = 200;
 
-extern int RiskPerTradeInPercents = 3;
+extern int RiskPerTradeInPercents = 20;
 
 extern bool Debug = false;
-extern int DebugDay;
-extern int DebugHour;
+extern int DebugDay = 1;
+extern int DebugHour = 13;
+
+extern bool Trailing = true;
 
 int buystopTicket = 0;
 int sellstopTicket = 0;
@@ -38,30 +41,35 @@ int OnInit()
 
 void OnTick()
 {
-    if( TimeToTradeNonfarm()
-        &&
-        !OrdersAlreadyPlaced() )
+    if( TimeToTradeNonfarm() )
     {
-        buystopTicket = PlaceBuystop();
-        sellstopTicket = PlaceSellstop();
-
-        if( buystopTicket == -1
-            ||
-            sellstopTicket == -1 )
+        if( !OrdersAlreadyPlaced() )
         {
-            Alert( ErrorDescription( GetLastError() ) );
+            buystopTicket = PlaceBuystop();
+            sellstopTicket = PlaceSellstop();
+
+            if( buystopTicket == -1
+                ||
+                sellstopTicket == -1 )
+            {
+                Alert( ErrorDescription( GetLastError() ) );
+            }
         }
-        return;
+        else
+        {
+            if( Trailing )
+            {
+                Trail();
+            }
+        }
     }
-    if( !TimeToTradeNonfarm() )
+    else
     {
         buystopTicket = 0;
         sellstopTicket = 0;
     }
-    else
-    {
-        return;
-    }
+
+    return;
 }
 
 bool TimeToTradeNonfarm()
@@ -72,8 +80,7 @@ bool TimeToTradeNonfarm()
             &&
             Hour() >= DebugHour
             &&
-            Hour() <= 23
-          )
+            Hour() <= 23 )
         {
             return true;
         }
@@ -121,7 +128,7 @@ int PlaceBuystop()
         "buystop",
         12345,
         expiration,
-        Green
+        OrderColor( OP_BUYSTOP )
     );
 
     return order_ticket;
@@ -145,7 +152,7 @@ int PlaceSellstop()
         "buystop",
         12345,
         expiration,
-        Red
+        OrderColor( OP_SELLSTOP )
     );
 
     return order_ticket;
@@ -187,8 +194,6 @@ double Clamp( double number, double lower, double upper )
 void ReadNonfarmData()
 {
     string filename = "nonfarmdata.csv";
-    //string terminal_data_path = TerminalInfoString( TERMINAL_DATA_PATH );
-    //string filepath = terminal_data_path + "\\MQL4\\Files\\" + filename;
     string filepath = filename;
 
     int filehandle = FileOpen( filepath, FILE_CSV );
@@ -214,7 +219,7 @@ void ReadNonfarmData()
     }
     else
     {
-        Print( "Failed to open the file ", filepath, " | Error: ", GetLastError() );
+        Alert( "Failed to open the file ", filepath, " | Error: ", GetLastError() );
     }
 
     return;
@@ -235,12 +240,104 @@ string MonthNameToNumber( string monthName )
     else if( monthName == "Nov" ) { return "11"; }
     else if( monthName == "Dec" ) { return "12"; }
     else {
-        Print( "Wrong month name at MonthNameToNumber(). Error: ", GetLastError() );
+        Alert( "Wrong month name at MonthNameToNumber(). Error: ", GetLastError() );
         return "";
     }
 }
 
-    //for( int i = 0; i < ArraySize( nonfarmDates ); i++ )
-    //{
-    //    Print( nonfarmDates[i].year, nonfarmDates[i].mon, nonfarmDates[i].day, nonfarmDates[i].hour, nonfarmDates[i].min );
-    //}
+void Trail()
+{
+    if( buystopTicket > 0 )
+    {
+        if( OrderSelect( buystopTicket, SELECT_BY_TICKET ) )
+        {
+            TrailSelectedOrder();
+        }
+        else
+        {
+            Alert( "Wrong buystop ticket in Trail(): ", buystopTicket );
+        }
+    }
+
+    if( sellstopTicket > 0 )
+    {
+        if( OrderSelect( sellstopTicket, SELECT_BY_TICKET ) )
+        {
+            TrailSelectedOrder();
+        }
+        else
+        {
+            Alert( "Wrong sellstop ticket in Trail(): ", sellstopTicket );
+        }
+    }
+    
+    return;
+}
+
+void TrailSelectedOrder()
+{
+    if( SelectedOrderIsActive() )
+    {
+        double trailingOffsetPosition;
+        double oldStoploss = OrderStopLoss();
+        double stoploss = oldStoploss;
+
+        if( OrderType() == OP_BUY )
+        {
+            trailingOffsetPosition = Bid - TrailingAmountInPoints * Point;
+            if( stoploss < trailingOffsetPosition )
+            {
+                stoploss = trailingOffsetPosition;
+            }
+        }
+        else if( OrderType() == OP_SELL )
+        {
+            trailingOffsetPosition = Ask + TrailingAmountInPoints * Point;
+            if( stoploss > trailingOffsetPosition )
+            {
+                stoploss = trailingOffsetPosition;
+            }
+        }
+
+        if( stoploss != oldStoploss )
+        {
+            OrderModify( OrderTicket(), OrderClosePrice(), stoploss, OrderTakeProfit(), 0, OrderColor( OP_BUY ) );
+        }
+    }
+
+    return;
+}
+
+bool SelectedOrderIsActive()
+{
+    return( OrderCloseTime() == 0
+            &&
+            ( OrderType() == OP_BUY
+              ||
+              OrderType() == OP_SELL ) );
+}
+
+int OrderColor( int orderType )
+{
+    if( orderType == OP_BUY
+        ||
+        orderType == OP_BUYSTOP
+        ||
+        orderType == OP_BUYLIMIT )
+    {
+        return Green;
+    }
+    else if( orderType == OP_SELL
+        ||
+        orderType == OP_SELLSTOP
+        ||
+        orderType == OP_SELLLIMIT )
+    {
+        return Red;
+    }
+    else
+    {
+        Alert( "Wrong order type in OrderColor(): ", orderType );
+        return 0;
+    }
+}
